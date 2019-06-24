@@ -34,7 +34,7 @@ func main() {
 Examples:
   $ nice --files 20190624.log -f time,msg
   $ myapp | nice -f time,level,msg
-  $ myapp | nice --files 20190624.log,anotherlogfile.log -f time,level,msg`)
+  $ myapp | nice --files 20190624.log,anotherlogfile.log -f time,level,msg,field.child.id`)
 	}
 	flag.Parse()
 

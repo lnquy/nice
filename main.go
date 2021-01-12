@@ -14,17 +14,20 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/fatih/color"
 	"github.com/tidwall/gjson"
 )
 
 var (
 	fInputFiles   string
 	fOutputFormat string
+	fFieldColors  string
 )
 
 func init() {
 	flag.StringVar(&fInputFiles, "files", "", "List of path input log files, separated by comma (,)")
 	flag.StringVar(&fOutputFormat, "f", "", "Output format. Fields can be access by dot notation path, separated by comma (,)")
+	flag.StringVar(&fFieldColors, "colors", "", "Field colors")
 }
 
 func main() {
@@ -43,6 +46,7 @@ Examples:
 		fileStrs = strings.Split(fInputFiles, ",")
 	}
 	outFields := strings.Split(fOutputFormat, ",")
+	outColors := getColorFormat(fFieldColors)
 
 	outputWriter := os.Stdout
 
@@ -57,7 +61,7 @@ Examples:
 		// This goroutine continue running until the app stopped
 		go func() {
 			log.Printf("nice: start reading from stdin")
-			pipeStdin(outFields, outputWriter)
+			pipeStdin(outFields, outColors, outputWriter)
 		}()
 	}
 
@@ -65,7 +69,7 @@ Examples:
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	for _, inFile := range fileStrs {
 		wg.Add(1)
-		go pipeFile(ctx, &wg, inFile, outFields, outputWriter)
+		go pipeFile(ctx, &wg, inFile, outFields, outColors, outputWriter)
 	}
 
 	// Trap signal if reading from stdin
@@ -84,7 +88,7 @@ Examples:
 	log.Println("nice: exit")
 }
 
-func pipeStdin(outputFields []string, out io.Writer) {
+func pipeStdin(outputFields []string, outColors []*color.Color, out io.Writer) {
 	reader := bufio.NewReader(os.Stdin)
 
 	buff := bytes.NewBuffer(make([]byte, 0, 1024))
@@ -96,11 +100,11 @@ func pipeStdin(outputFields []string, out io.Writer) {
 
 		// Grep JSON
 		buff.Reset()
-		print(line, outputFields, buff, out)
+		print(line, outputFields, outColors, buff, out)
 	}
 }
 
-func pipeFile(ctx context.Context, wg *sync.WaitGroup, filepath string, outputFields []string, out io.Writer) {
+func pipeFile(ctx context.Context, wg *sync.WaitGroup, filepath string, outputFields []string, outColors []*color.Color, out io.Writer) {
 	defer wg.Done()
 
 	f, err := os.OpenFile(filepath, os.O_RDONLY, 0400)
@@ -132,14 +136,16 @@ func pipeFile(ctx context.Context, wg *sync.WaitGroup, filepath string, outputFi
 			}
 
 			buff.Reset()
-			print(scanner.Bytes(), outputFields, buff, out)
+			print(scanner.Bytes(), outputFields, outColors, buff, out)
 		}
 	}
 }
 
-func print(line []byte, outFields []string, buff *bytes.Buffer, out io.Writer) {
-	for _, field := range outFields {
-		jsField := gjson.GetBytes(line, field)
+func print(line []byte, outFields []string, outColors []*color.Color, buff *bytes.Buffer, out io.Writer) {
+	jsonLine := gjson.ParseBytes(line)
+
+	for idx, field := range outFields {
+		jsField := jsonLine.Get(field)
 		val := jsField.Str
 		if jsField.Type == gjson.JSON {
 			val = jsField.Raw
@@ -147,15 +153,52 @@ func print(line []byte, outFields []string, buff *bytes.Buffer, out io.Writer) {
 		if strings.TrimSpace(val) == "" {
 			continue
 		}
-		buff.WriteString(val + "\t")
+
+		if idx < len(outColors) { // Has color format
+			buff.WriteString(outColors[idx].Sprintf("%s\t", val))
+		} else {
+			buff.WriteString(val + "\t")
+		}
 	}
 
 	if buff.Len() == 0 {
 		return
 	}
 	buff.WriteString("\n")
-	_, err := out.Write(buff.Bytes())
-	if err != nil {
+	if _, err := fmt.Fprintf(out, "%s", buff.Bytes()); err != nil {
 		log.Printf("nice: failed to write to output: %s. Log: %s", err, buff.Bytes())
 	}
+}
+
+func getColorFormat(inStr string) []*color.Color {
+	if len(inStr) == 0 || strings.TrimSpace(inStr) == "" {
+		return nil
+	}
+
+	colors := strings.Split(inStr, ",")
+	var outColors []*color.Color
+	for _, c := range colors {
+		switch strings.ToLower(strings.TrimSpace(c)) {
+		case "black":
+			outColors = append(outColors, color.New(color.FgBlack))
+		case "red":
+			outColors = append(outColors, color.New(color.FgRed))
+		case "green":
+			outColors = append(outColors, color.New(color.FgGreen))
+		case "yellow":
+			outColors = append(outColors, color.New(color.FgYellow))
+		case "blue":
+			outColors = append(outColors, color.New(color.FgBlue))
+		case "magenta":
+			outColors = append(outColors, color.New(color.FgMagenta))
+		case "cyan":
+			outColors = append(outColors, color.New(color.FgCyan))
+		case "white":
+			outColors = append(outColors, color.New(color.FgWhite))
+		default:
+			outColors = append(outColors, color.New(color.Reset))
+		}
+	}
+
+	return outColors
 }

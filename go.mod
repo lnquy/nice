@@ -10,4 +10,5 @@ require (
 	github.com/tidwall/gjson v1.2.1
 	github.com/tidwall/match v1.0.1 // indirect
 	github.com/tidwall/pretty v1.0.0 // indirect
+	golang.org/x/sys v0.0.0-20220907062415-87db552b00fd // indirect
 )
